@@ -11,8 +11,8 @@ python3.14 -m venv /root/venv
 
 # Clone the backend repository
 cd /root
-git clone https://github.com/swobenator/Cloud_APP_Dev_Backend.git
-cd /root/Cloud_APP_Dev_Backend
+git clone https://github.com/swobenator/Cloud_Backend.git
+cd /root/Cloud_Backend
 
 # Install Python dependencies
 /root/venv/bin/pip install -r requirements.txt
