@@ -1,51 +1,77 @@
+
 name: App deployment
 
 on:
   workflow_dispatch:
 
-env:
- STATE_FILE: "terraform.tfstate"
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
 
 jobs:
   plan_and_deploy:
-    runs-on: ubuntu-26.04
-    permissions: write-all
+    runs-on: ubuntu-24.04
 
     steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: Checkout
-      uses: actions/checkout@v7
+      - name: Checkout application repository
+        uses: actions/checkout@v7
 
-    # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v4
+      - name: Checkout private state repository
+        uses: actions/checkout@v7
+        with:
+          repository: swobenator/Terraform_State
+          token: ${{ secrets.STATE_REPO_TOKEN }}
+          path: state-repo
 
-    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
-    - name: Terraform Init
-      run: terraform init
+      - name: Restore Terraform state
+        id: restore
+        shell: bash
+        run: |
+          if [ ! -f state-repo/terraform.tfstate ]; then
+            echo "::error::Terraform state is missing. Stopping safely."
+            exit 1
+          fi
 
-    # Generates an execution plan for Terraform
-    - name: Terraform Plan
-      run: terraform plan -input=false
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          cp state-repo/terraform.tfstate ./terraform.tfstate
+          echo "state_found=true" >> "$GITHUB_OUTPUT"
 
-      # Build or change infrastructure according to Terraform configuration files
-    - name: Terraform Apply
-      if: hashFiles(env.STATE_FILE) != ''
-      run: terraform apply -no-color -auto-approve
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
 
-    - name: Save current Terraform deployment state
-      if: hashFiles(env.STATE_FILE) != ''
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add terraform.tfstate
-        git commit -m "chore: automated log update [skip ci]"
-        git push
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        run: terraform plan -input=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -no-color -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Save Terraform state to private repository
+        if: always() && steps.restore.outputs.state_found == 'true' && hashFiles('terraform.tfstate') != ''
+        shell: bash
+        run: |
+          cp terraform.tfstate state-repo/terraform.tfstate
+
+          git -C state-repo config user.name "github-actions[bot]"
+          git -C state-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git -C state-repo add terraform.tfstate
+
+          if ! git -C state-repo diff --cached --quiet; then
+            git -C state-repo commit -m "Update Terraform state [skip ci]"
+            git -C state-repo push
+          else
+            echo "Terraform state has not changed."
+          fi

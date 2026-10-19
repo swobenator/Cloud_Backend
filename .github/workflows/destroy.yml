@@ -1,33 +1,70 @@
+
 name: Destroy app stack
 
 on:
   workflow_dispatch:
 
-env:
- STATE_FILE: "terraform.tfstate"
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
 
 jobs:
   destroy_stack:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
 
     steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: Checkout
-      uses: actions/checkout@v7
+      - name: Checkout application repository
+        uses: actions/checkout@v7
 
-    # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v4
+      - name: Checkout private state repository
+        uses: actions/checkout@v7
+        with:
+          repository: swobenator/Terraform_State
+          token: ${{ secrets.STATE_REPO_TOKEN }}
+          path: state-repo
 
-    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
-    - name: Terraform Init
-      run: terraform init
+      - name: Restore Terraform state
+        id: restore
+        shell: bash
+        run: |
+          if [ ! -f state-repo/terraform.tfstate ]; then
+            echo "::error::Terraform state is missing. Stopping safely."
+            exit 1
+          fi
 
-    # Generates an execution plan for Terraform
-    - name: Terraform Destroy
-      if: hashFiles(env.STATE_FILE) != ''
-      run: terraform destroy -auto-approve
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          cp state-repo/terraform.tfstate ./terraform.tfstate
+          echo "state_found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        run: terraform destroy -input=false -no-color -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Save Terraform state to private repository
+        if: always() && steps.restore.outputs.state_found == 'true' && hashFiles('terraform.tfstate') != ''
+        shell: bash
+        run: |
+          cp terraform.tfstate state-repo/terraform.tfstate
+
+          git -C state-repo config user.name "github-actions[bot]"
+          git -C state-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git -C state-repo add terraform.tfstate
+
+          if ! git -C state-repo diff --cached --quiet; then
+            git -C state-repo commit -m "Update Terraform state after destroy [skip ci]"
+            git -C state-repo push
+          else
+            echo "Terraform state has not changed."
+          fi
