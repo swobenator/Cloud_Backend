@@ -62,7 +62,12 @@ resource "aws_instance" "server" {
   tags = {
     Name = var.instance_name
   }
+
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
 }
+
 
 # Output the public IP address
 output "public_ip" {
