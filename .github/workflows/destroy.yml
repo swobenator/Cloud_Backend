@@ -1,8 +1,13 @@
 
-name: Destroy app stack
+name: Destroy App Stack
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: "Type DESTROY to confirm infrastructure deletion"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +21,16 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Confirm destruction
+        env:
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+        shell: bash
+        run: |
+          if [ "$CONFIRM_DESTROY" != "DESTROY" ]; then
+            echo "::error::You must type DESTROY to proceed."
+            exit 1
+          fi
+
       - name: Checkout application repository
         uses: actions/checkout@v7
 
@@ -31,7 +46,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -f state-repo/terraform.tfstate ]; then
-            echo "::error::Terraform state is missing. Stopping safely."
+            echo "::error::Terraform state is missing."
             exit 1
           fi
 
