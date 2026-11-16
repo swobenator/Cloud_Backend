@@ -76,7 +76,6 @@ resource "aws_eip" "server_eip" {
 
 # Output the public IP address
 output "public_ip" {
-  value       = "${aws_instance.server.public_ip}"
+  value       = "http://${aws_eip.server_eip.public_ip}:${var.app_port}/"
   description = "The public IP of your application"
 }
-
