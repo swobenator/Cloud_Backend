@@ -17,7 +17,7 @@ variable "instance_type" {
 }
 
 variable "app_port" {
-  decription = "The HTTP binding port"
+  description = "The HTTP binding port"
   type = number
   default = 8000
 }
