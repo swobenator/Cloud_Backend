@@ -24,7 +24,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/root/Cloud_APP_Dev_Backend
+WorkingDirectory=/root/Cloud_Backend
 ExecStart=/root/venv/bin/uvicorn main:app --host 0.0.0.0 --port 80
 Restart=always
 RestartSec=5
